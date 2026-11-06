@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Arrow Bot</string>
+    <string name="service_description">Lets Arrow Bot take screenshots and tap the screen to solve Arrow Out levels.</string>
+</resources>
