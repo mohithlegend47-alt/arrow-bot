@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Arrow Bot</title>
+<style>
+  :root {
+    --bg: #0f1220; --card: #181c2e; --line: #2a3050; --text: #e8eaf6;
+    --muted: #8f96b8; --accent: #7c5cff; --good: #2ecc71; --warn: #f5a623; --bad: #ff5c6c;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; padding: 16px; padding-top: max(16px, env(safe-area-inset-top));
+    background: var(--bg); color: var(--text);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 16px; font-size: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+  .row { display: flex; gap: 10px; }
+  button {
+    flex: 1; border: 0; border-radius: 12px; padding: 14px 10px; font-size: 16px; font-weight: 600;
+    color: #fff; background: var(--accent);
+  }
+  button.stop { background: var(--bad); }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
+  button:disabled { opacity: .45; }
+  .pill { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; background: var(--line); }
+  .pill.game { background: rgba(46,204,113,.2); color: var(--good); }
+  .pill.ad { background: rgba(245,166,35,.2); color: var(--warn); }
+  .pill.solving { background: rgba(124,92,255,.25); color: #b9a8ff; }
+  .pill.stopped, .pill.idle { background: var(--line); color: var(--muted); }
+  .status { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .label { color: var(--muted); font-size: 13px; }
+  textarea {
+    width: 100%; min-height: 120px; background: #0c0f1b; color: var(--text); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; resize: vertical;
+  }
+  #grid { display: grid; gap: 3px; margin: 12px 0 4px; }
+  .cell { aspect-ratio: 1; border-radius: 6px; background: #0c0f1b; display: flex; align-items: center;
+          justify-content: center; font-size: 12px; font-weight: 700; color: #0c0f1b; }
+  #log { font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; color: var(--muted);
+         max-height: 160px; overflow: auto; white-space: pre-wrap; }
+  .note { font-size: 13px; color: var(--muted); }
+  .ok { color: var(--good); } .err { color: var(--bad); }
+</style>
+</head>
+<body>
+  <h1>Arrow Bot</h1>
+  <p class="sub">Auto-solves Arrow Out levels and waits through ads.</p>
+
+  <div class="card">
+    <div class="status">
+      <span class="label">Bot status</span>
+      <span id="pill" class="pill idle">idle</span>
+    </div>
+    <div class="row">
+      <button id="startBtn">Start</button>
+      <button id="stopBtn" class="stop" disabled>Stop</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="a11yBtn" class="ghost">Enable accessibility</button>
+    </div>
+    <p id="envNote" class="note" style="margin:10px 0 0"></p>
+  </div>
+
+  <div class="card">
+    <div class="label" style="margin-bottom:8px">Solver tester</div>
+    <textarea id="input" spellcheck="false"></textarea>
+    <div class="row" style="margin-top:10px">
+      <button id="solveBtn">Solve</button>
+      <button id="demoBtn" class="ghost">Load demo</button>
+    </div>
+    <div id="grid"></div>
+    <div id="result" class="note"></div>
+  </div>
+
+  <div class="card">
+    <div class="label" style="margin-bottom:6px">Log</div>
+    <div id="log"></div>
+  </div>
+
+<script>
+const DIRS = { U: [-1, 0], D: [1, 0], L: [0, -1], R: [0, 1] };
+
+function rayCells(a, rows, cols) {
+  const [dr, dc] = DIRS[a.dir];
+  let [r, c] = a.cells[a.cells.length - 1];
+  const out = [];
+  r += dr; c += dc;
+  while (r >= 0 && r < rows && c >= 0 && c < cols) { out.push(r + "," + c); r += dr; c += dc; }
+  return out;
+}
+
+function solve(arrows, rows, cols) {
+  const remaining = new Map(arrows.map(a => [a.id, a]));
+  const order = [];
+  while (remaining.size) {
+    const occ = new Map();
+    for (const a of remaining.values()) for (const [r, c] of a.cells) occ.set(r + "," + c, a.id);
+    let moved = false;
+    for (const [id, a] of remaining) {
+      const blocked = rayCells(a, rows, cols).some(k => occ.has(k) && occ.get(k) !== id);
+      if (!blocked) { order.push(id); remaining.delete(id); moved = true; break; }
+    }
+    if (!moved) return null;
+  }
+  return order;
+}
+
+const DEMO = {
+  rows: 4, cols: 4,
+  arrows: [
+    { id: 1, cells: [[0,0],[0,1]], dir: "R" },
+    { id: 2, cells: [[0,3],[1,3]], dir: "U" },
+    { id: 3, cells: [[3,1],[3,0]], dir: "L" },
+    { id: 4, cells: [[1,1],[2,1]], dir: "D" }
+  ]
+};
+
+function selfTest() {
+  const o = solve(DEMO.arrows, DEMO.rows, DEMO.cols);
+  const pos = Object.fromEntries(o.map((id, i) => [id, i]));
+  const ok = o && pos[2] < pos[1] && pos[3] < pos[4] &&
+    solve([{id:1,cells:[[0,0]],dir:"R"},{id:2,cells:[[0,2]],dir:"L"}], 1, 3) === null;
+  log(ok ? "Solver self-test passed." : "Solver self-test FAILED.");
+}
+
+const $ = id => document.getElementById(id);
+const COLORS = ["#7c5cff","#2ecc71","#f5a623","#ff5c6c","#3fc1ff","#e056fd","#badc58","#ffbe76"];
+const GLYPH = { U: "▲", D: "▼", L: "◀", R: "▶" };
+
+function log(msg) {
+  const t = new Date().toLocaleTimeString();
+  $("log").textContent += "[" + t + "] " + msg + "\n";
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+function drawGrid(p) {
+  const g = $("grid");
+  g.style.gridTemplateColumns = "repeat(" + p.cols + ", 1fr)";
+  g.innerHTML = "";
+  const cellMap = {};
+  p.arrows.forEach(a => a.cells.forEach(([r, c], i) => {
+    cellMap[r + "," + c] = { a, head: i === a.cells.length - 1 };
+  }));
+  for (let r = 0; r < p.rows; r++) for (let c = 0; c < p.cols; c++) {
+    const d = document.createElement("div");
+    d.className = "cell";
+    const m = cellMap[r + "," + c];
+    if (m) {
+      d.style.background = COLORS[(m.a.id - 1) % COLORS.length];
+      d.textContent = m.head ? GLYPH[m.a.dir] : m.a.id;
+    }
+    g.appendChild(d);
+  }
+}
+
+function runSolver() {
+  let p;
+  try { p = JSON.parse($("input").value); }
+  catch (e) { $("result").innerHTML = '<span class="err">Invalid JSON: ' + e.message + "</span>"; return; }
+  drawGrid(p);
+  const order = solve(p.arrows, p.rows, p.cols);
+  $("result").innerHTML = order
+    ? '<span class="ok">Solvable.</span> Tap order: ' + order.join(" → ")
+    : '<span class="err">Deadlock:</span> no arrow can leave. Check the rules or the detected positions.';
+  log(order ? "Solved: " + order.join(",") : "Deadlock found.");
+}
+
+function loadDemo() { $("input").value = JSON.stringify(DEMO, null, 1); runSolver(); }
+
+const bridge = window.ArrowBot || null;
+
+function setStatus(s) {
+  const p = $("pill");
+  p.className = "pill " + s;
+  p.textContent = ({ game: "playing", ad: "ad showing: waiting", solving: "solving", idle: "idle", stopped: "stopped" })[s] || s;
+  const running = s === "game" || s === "ad" || s === "solving";
+  $("startBtn").disabled = running;
+  $("stopBtn").disabled = !running;
+}
+window.onBotStatus = setStatus;
+window.onBotLog = log;
+
+$("startBtn").onclick = () => {
+  if (!bridge) { log("Preview mode: the bot only runs inside the Android app."); return; }
+  if (!bridge.isAccessibilityEnabled()) { log("Turn on accessibility first."); bridge.openAccessibilitySettings(); return; }
+  bridge.start(); setStatus("solving"); log("Bot started. Open Arrow Out.");
+};
+$("stopBtn").onclick = () => { if (bridge) bridge.stop(); setStatus("stopped"); log("Bot stopped."); };
+$("a11yBtn").onclick = () => bridge ? bridge.openAccessibilitySettings() : log("Preview mode: nothing to enable here.");
+$("solveBtn").onclick = runSolver;
+$("demoBtn").onclick = loadDemo;
+
+$("envNote").textContent = bridge
+  ? "Running inside the Arrow Bot app."
+  : "Preview mode: the solver tester works, but Start needs the Android app.";
+
+selfTest();
+loadDemo();
+</script>
+</body>
+</html>
